@@ -3,22 +3,31 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // 사용자의 역할(role)을 확인하는 함수
+    // 관리자 확인 함수 (필요시 이메일 변경 가능)
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email == 'mokwont@gmail.com';
+    }
+
+    // users/{uid} 문서에서 현재 사용자의 역할(role)을 읽어옵니다.
     function getUserRole() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
 
-    // 교사(teacher) 여부 확인
+    // 교사(teacher) 또는 관리자 여부 확인
     function isTeacher() {
-      return request.auth != null && getUserRole() == 'teacher';
+      return request.auth != null && (getUserRole() == 'teacher' || isAdmin());
     }
 
     // 사용자 정보 컬렉션 (users)
     match /users/{userId} {
-      // 로그인한 사용자는 역할 정보를 조회할 수 있음
+      // 로그인한 사용자는 사용자 목록/정보를 조회할 수 있음
       allow read: if request.auth != null;
-      // 본인의 역할 문서는 본인 또는 교사가 작성/수정 가능
-      allow write: if request.auth != null && (request.auth.uid == userId || isTeacher());
+
+      // 본인은 자신의 승인 요청(requested 등) 가능, 관리자는 role 승인/수정 가능
+      allow write: if request.auth != null && (
+        request.auth.uid == userId || isAdmin()
+      );
     }
 
     // 메모 컬렉션 (memos)
@@ -27,7 +36,6 @@ service cloud.firestore {
       allow read: if true;
 
       // 생성(create): 로그인한 사용자(학생/교사)만 생성 가능
-      // 본인의 uid가 반드시 포함되어야 하며 5글자 이상 50글자 이하
       allow create: if request.auth != null
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.text is string
@@ -36,13 +44,13 @@ service cloud.firestore {
         && (request.resource.data.createdAt is int || request.resource.data.createdAt is timestamp);
 
       // 삭제(delete):
-      // - 교사(teacher): 모든 메모 삭제 가능 (전체 관리 권한)
-      // - 학생(student): 타인의 메모는 절대 삭제 불가 (본인이 작성한 메모만 삭제 가능)
+      // - 교사/관리자: 모든 메모 삭제 가능 (전체 관리)
+      // - 학생: 타인의 메모는 삭제 불가 (본인이 작성한 메모만 삭제 가능)
       allow delete: if request.auth != null && (
         isTeacher() || (resource.data.uid == request.auth.uid)
       );
 
-      // 수정(update): 교사는 모든 메모 수정 가능, 학생은 본인 메모만 수정 가능
+      // 수정(update): 교사/관리자는 모든 메모 수정 가능, 학생은 본인 메모만 수정 가능
       allow update: if request.auth != null && (
         isTeacher() || (resource.data.uid == request.auth.uid)
       );

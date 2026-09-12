@@ -16,7 +16,9 @@ import {
   doc,
   getDoc,
   setDoc,
+  updateDoc,
   query,
+  where,
   orderBy
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 import {
@@ -43,43 +45,78 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 
-// 현재 로그인한 사용자의 역할 ('teacher' 또는 'student')
-let currentUserRole = "student";
+// 관리자 이메일 (이 이메일로 로그인하면 교사 승인 요청 목록이 보입니다)
+const ADMIN_EMAIL = "mokwont@gmail.com";
 
-// 사용자 역할 불러오기 (Firestore의 users/{uid} 문서 조회)
+// 현재 로그인한 사용자의 상태
+let currentUserRole = "student";     // 'teacher' 또는 'student'
+let currentUserRequested = false;    // 교사 승인 요청 여부 (true/false)
+
+// 사용자 역할 및 승인 요청 상태 불러오기 (Firestore의 users/{uid} 문서 조회)
 async function loadUserRole(uid) {
   try {
     const userDocRef = doc(db, "users", uid);
     const userDocSnap = await getDoc(userDocRef);
 
     if (userDocSnap.exists()) {
-      currentUserRole = userDocSnap.data().role || "student";
+      // 이미 문서가 있는 사람은 새로 만들지 않고 그대로 둡니다.
+      const data = userDocSnap.data();
+      currentUserRole = data.role || "student";
+      currentUserRequested = data.requested === true;
     } else {
-      // 기본 역할 설정: 현재 관리 계정(mokwont@gmail.com)은 teacher, 그 외는 student
-      const isInitialTeacher = auth.currentUser && auth.currentUser.email === "mokwont@gmail.com";
-      const initialRole = isInitialTeacher ? "teacher" : "student";
-      await setDoc(userDocRef, { role: initialRole });
-      currentUserRole = initialRole;
+      // 처음 들어온 사람은 users에 문서를 만들고 role에 "student"라고 적어 줍니다.
+      await setDoc(userDocRef, {
+        role: "student",
+        requested: false,
+        email: auth.currentUser ? auth.currentUser.email : ""
+      });
+      currentUserRole = "student";
+      currentUserRequested = false;
     }
   } catch (error) {
     console.error("사용자 역할 불러오기 실패:", error);
     currentUserRole = "student";
+    currentUserRequested = false;
   }
 }
 
-// 실습/테스트용 역할 전환 함수 (교사 ↔ 학생)
-async function toggleUserRole() {
-  if (!auth.currentUser) return;
-  const newRole = currentUserRole === "teacher" ? "student" : "teacher";
+// 교사 승인 요청하기 (내 문서의 requested를 true로 변경)
+async function requestTeacherApproval() {
+  const user = auth.currentUser;
+  if (!user) return;
+
   try {
-    await setDoc(doc(db, "users", auth.currentUser.uid), { role: newRole }, { merge: true });
-    currentUserRole = newRole;
+    const userDocRef = doc(db, "users", user.uid);
+    await updateDoc(userDocRef, {
+      requested: true,
+      email: user.email
+    });
+    currentUserRequested = true;
     await render();
+    alert("교사 승인 요청이 접수되었습니다. 관리자 승인을 기다려 주세요.");
   } catch (error) {
-    console.error("역할 변경 실패:", error);
-    alert("역할 변경에 실패했습니다: " + error.message);
+    console.error("교사 승인 요청 실패:", error);
+    alert("교사 승인 요청 중 오류가 발생했습니다: " + error.message);
   }
 }
+
+// 관리자가 교사 승인하기 (해당 사람의 role을 teacher로 변경)
+async function approveTeacher(targetUid) {
+  try {
+    const userDocRef = doc(db, "users", targetUid);
+    await updateDoc(userDocRef, {
+      role: "teacher",
+      requested: false
+    });
+    alert("교사로 승인되었습니다.");
+    await render();
+  } catch (error) {
+    console.error("교사 승인 처리 실패:", error);
+    alert("교사 승인 처리 중 오류가 발생했습니다: " + error.message);
+  }
+}
+
+
 
 
 // ===================================================
@@ -167,8 +204,8 @@ async function deleteMemo(id) {
 // 화면 그리기
 // ===================================================
 
-// 사용자 로그인 영역 그리기 (#userArea)
-function renderUserArea() {
+// 사용자 로그인 영역 및 승인 영역 그리기 (#userArea)
+async function renderUserArea() {
   const userArea = document.getElementById("userArea");
   if (!userArea) return;
   userArea.innerHTML = "";
@@ -176,20 +213,30 @@ function renderUserArea() {
   const user = auth.currentUser;
 
   if (user) {
-    // 로그인된 경우: 이메일과 현재 역할 표시
+    // 1. 내 정보 표시 (이메일 및 역할)
     const infoSpan = document.createElement("span");
     const roleLabel = currentUserRole === "teacher" ? "👨‍🏫 교사" : "🧑‍🎓 학생";
     infoSpan.innerHTML = `<strong>${user.email}</strong> (${roleLabel}) `;
     userArea.appendChild(infoSpan);
 
-    // 실습 테스트를 위한 역할 전환 버튼
-    const toggleBtn = document.createElement("button");
-    toggleBtn.textContent = currentUserRole === "teacher" ? "학생 모드로 전환" : "교사 모드로 전환";
-    toggleBtn.style.marginRight = "6px";
-    toggleBtn.addEventListener("click", toggleUserRole);
-    userArea.appendChild(toggleBtn);
+    // 2. 교사 승인 요청 버튼 또는 "승인 대기 중" 표시 (학생인 경우에만)
+    if (currentUserRole !== "teacher") {
+      if (currentUserRequested) {
+        const waitingSpan = document.createElement("span");
+        waitingSpan.textContent = "[승인 대기 중] ";
+        waitingSpan.style.color = "#e65100";
+        waitingSpan.style.fontWeight = "bold";
+        userArea.appendChild(waitingSpan);
+      } else {
+        const reqBtn = document.createElement("button");
+        reqBtn.textContent = "교사 승인 요청";
+        reqBtn.style.marginRight = "6px";
+        reqBtn.addEventListener("click", requestTeacherApproval);
+        userArea.appendChild(reqBtn);
+      }
+    }
 
-    // 로그아웃 버튼
+    // 3. 로그아웃 버튼
     const logoutBtn = document.createElement("button");
     logoutBtn.textContent = "로그아웃";
     logoutBtn.addEventListener("click", async function () {
@@ -200,6 +247,62 @@ function renderUserArea() {
       }
     });
     userArea.appendChild(logoutBtn);
+
+    // 4. 관리자 이메일로 로그인했을 때만: 요청한 사람 목록 표시 및 승인 버튼
+    if (user.email === ADMIN_EMAIL) {
+      const adminBox = document.createElement("div");
+      adminBox.style.marginTop = "10px";
+      adminBox.style.padding = "8px 12px";
+      adminBox.style.background = "#eef7ee";
+      adminBox.style.border = "1px solid #c8e6c9";
+      adminBox.style.borderRadius = "4px";
+
+      const adminTitle = document.createElement("strong");
+      adminTitle.textContent = "📋 [관리자] 교사 승인 요청 목록:";
+      adminBox.appendChild(adminTitle);
+
+      try {
+        const q = query(collection(db, "users"), where("requested", "==", true));
+        const querySnap = await getDocs(q);
+
+        if (querySnap.empty) {
+          const emptyText = document.createElement("span");
+          emptyText.textContent = " 대기 중인 요청이 없습니다.";
+          emptyText.style.color = "#666";
+          adminBox.appendChild(emptyText);
+        } else {
+          const list = document.createElement("ul");
+          list.style.margin = "6px 0 0 0";
+          list.style.paddingLeft = "20px";
+
+          querySnap.forEach(function (docSnap) {
+            const reqData = docSnap.data();
+            const item = document.createElement("li");
+            item.style.marginBottom = "4px";
+
+            const emailText = document.createElement("span");
+            emailText.textContent = `${reqData.email || docSnap.id} `;
+            item.appendChild(emailText);
+
+            const approveBtn = document.createElement("button");
+            approveBtn.textContent = "승인";
+            approveBtn.style.marginLeft = "6px";
+            approveBtn.style.padding = "2px 8px";
+            approveBtn.addEventListener("click", function () {
+              approveTeacher(docSnap.id);
+            });
+            item.appendChild(approveBtn);
+
+            list.appendChild(item);
+          });
+          adminBox.appendChild(list);
+        }
+      } catch (err) {
+        console.error("승인 요청 목록 조회 실패:", err);
+      }
+
+      userArea.appendChild(adminBox);
+    }
   } else {
     // 로그인되지 않은 경우: Google 로그인 버튼
     const loginBtn = document.createElement("button");
@@ -221,7 +324,7 @@ function renderUserArea() {
 }
 
 async function render() {
-  renderUserArea();
+  await renderUserArea();
 
   const wall = document.getElementById("wall");
   wall.innerHTML = "";
@@ -238,10 +341,10 @@ function makeMemo(memo) {
   div.className = "memo";
 
   const user = auth.currentUser;
-  // 권한 규칙:
-  // - 교사(teacher)는 모든 메모를 삭제할 수 있음
-  // - 학생(student)은 본인이 쓴 메모만 삭제할 수 있음 (타인의 것은 삭제 버튼 미노출)
-  const canDelete = user && (currentUserRole === "teacher" || memo.uid === user.uid);
+  // 삭제 버튼 표시 조건:
+  // - role이 teacher인 사람에게는 모든 메모의 삭제 버튼이 보임
+  // - 일반 사용자(student 등)에게는 내가 쓴 메모에만 삭제 버튼이 보임
+  const canDelete = user && (currentUserRole === "teacher" || (memo.uid && memo.uid === user.uid));
 
   if (canDelete) {
     const del = document.createElement("button");
