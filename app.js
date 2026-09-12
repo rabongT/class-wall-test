@@ -139,7 +139,8 @@ async function loadMemos() {
         text: data.text,
         createdAt: data.createdAt,
         uid: data.uid, // 작성자 uid 가져오기
-        author: data.author || "익명" // 글쓴이 정보
+        author: data.author || "익명", // 글쓴이 정보
+        authorRole: data.authorRole === "teacher" ? "teacher" : "student"
       });
     });
 
@@ -171,7 +172,8 @@ async function addMemo(text) {
       text: text,
       createdAt: Date.now(),
       uid: user.uid,        // 작성자 UID
-      author: user.email     // 글쓴이 이메일
+      author: user.email,    // 글쓴이 이메일
+      authorRole: currentUserRole === "teacher" ? "teacher" : "student"
     });
   } catch (error) {
     console.error("메모 저장 실패:", error);
@@ -338,7 +340,17 @@ async function render() {
 // 메모 한 장 만들기
 function makeMemo(memo) {
   const div = document.createElement("div");
-  div.className = "memo";
+  const isTeacherMemo = memo.authorRole === "teacher";
+  div.className = isTeacherMemo ? "memo teacher" : "memo";
+
+  // 카드 위쪽에 작성자 역할 배지와 삭제 버튼을 함께 놓습니다.
+  const top = document.createElement("div");
+  top.className = "memo-top";
+
+  const badge = document.createElement("span");
+  badge.className = isTeacherMemo ? "memo-badge badge-teacher" : "memo-badge badge-student";
+  badge.textContent = isTeacherMemo ? "선생님 📌" : "학생";
+  top.appendChild(badge);
 
   const user = auth.currentUser;
   // 삭제 버튼 표시 조건:
@@ -348,16 +360,20 @@ function makeMemo(memo) {
 
   if (canDelete) {
     const del = document.createElement("button");
+    del.className = "del-btn";
     del.textContent = "×";
     del.title = currentUserRole === "teacher" && memo.uid !== user.uid ? "교사 권한으로 삭제" : "삭제";
     del.addEventListener("click", async function () {
       await deleteMemo(memo.id);
       await render();
     });
-    div.appendChild(del);
+    top.appendChild(del);
   }
 
+  div.appendChild(top);
+
   const span = document.createElement("span");
+  span.className = "memo-content";
   span.textContent = memo.text;
   div.appendChild(span);
 

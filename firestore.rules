@@ -21,13 +21,23 @@ service cloud.firestore {
 
     // 사용자 정보 컬렉션 (users)
     match /users/{userId} {
-      // 로그인한 사용자는 사용자 목록/정보를 조회할 수 있음
-      allow read: if request.auth != null;
+      // 본인은 자기 정보만, 관리자는 승인 요청 목록 전체를 볼 수 있습니다.
+      allow read: if request.auth != null
+        && (request.auth.uid == userId || isAdmin());
 
-      // 본인은 자신의 승인 요청(requested 등) 가능, 관리자는 role 승인/수정 가능
-      allow write: if request.auth != null && (
-        request.auth.uid == userId || isAdmin()
+      // 처음 가입한 사람은 학생 역할의 자기 문서만 만들 수 있습니다.
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.role == 'student';
+
+      // 본인은 역할을 바꿀 수 없고, 관리자는 교사 승인 처리를 할 수 있습니다.
+      allow update: if request.auth != null && (
+        isAdmin()
+        || (request.auth.uid == userId
+          && request.resource.data.role == resource.data.role)
       );
+
+      allow delete: if isAdmin();
     }
 
     // 메모 컬렉션 (memos)
@@ -41,6 +51,8 @@ service cloud.firestore {
         && request.resource.data.text is string
         && request.resource.data.text.size() >= 5
         && request.resource.data.text.size() <= 50
+        && request.resource.data.authorRole in ['student', 'teacher']
+        && request.resource.data.authorRole == (isTeacher() ? 'teacher' : 'student')
         && (request.resource.data.createdAt is int || request.resource.data.createdAt is timestamp);
 
       // 삭제(delete):
