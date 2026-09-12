@@ -139,7 +139,6 @@ async function loadMemos() {
         text: data.text,
         createdAt: data.createdAt,
         uid: data.uid, // 작성자 uid 가져오기
-        author: data.author || "익명", // 글쓴이 정보
         authorRole: data.authorRole === "teacher" ? "teacher" : "student"
       });
     });
@@ -167,12 +166,11 @@ async function addMemo(text) {
   }
 
   try {
-    // 메모를 저장할 때 로그인한 사람의 uid와 글쓴이(이메일)를 함께 저장합니다.
+    // 메모에는 화면 표시에 필요한 내용, 작성자 UID, 역할만 저장합니다.
     await addDoc(collection(db, "memos"), {
       text: text,
       createdAt: Date.now(),
       uid: user.uid,        // 작성자 UID
-      author: user.email,    // 글쓴이 이메일
       authorRole: currentUserRole === "teacher" ? "teacher" : "student"
     });
   } catch (error) {
