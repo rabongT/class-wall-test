@@ -11,7 +11,19 @@
     .notice { background: #ffe9e9; padding: 10px; }
 
     /* 로그인 버튼이 들어올 자리 */
-    #userArea { margin: 10px 0; color: #666; }
+    #userArea { margin: 12px 0; color: #333; font-size: 15px; }
+    #userArea button {
+      padding: 6px 14px;
+      font-size: 14px;
+      cursor: pointer;
+      background: #fff;
+      border: 1px solid #bbb;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+    #userArea button:hover {
+      background: #f0f0f0;
+    }
 
     /* 메모 쓰는 칸 */
     #writer { margin: 16px 0; }
@@ -27,8 +39,10 @@
 
   <h1>우리 반 담벼락</h1>
 
-  <!-- 백엔드 2 시간에 여기에 로그인 버튼과 내 이름이 들어옵니다 -->
-  <div id="userArea">아직 로그인 기능이 없습니다.</div>
+  <!-- 로그인 버튼과 사용자 이메일이 들어오는 영역 -->
+  <div id="userArea">
+    <button id="loginBtn">Google 로그인</button>
+  </div>
 
   <div id="writer">
     <textarea id="input" rows="3" placeholder="메모를 쓰고 엔터"></textarea>
@@ -41,6 +55,6 @@
     type="module" 로 불러옵니다.
     Firebase SDK가 import 문법이라, 백엔드 시간에 이 방식이어야 붙일 수 있습니다.
   -->
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=auth"></script>
 </body>
 </html>
